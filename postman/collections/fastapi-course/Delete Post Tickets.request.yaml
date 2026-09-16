@@ -1,0 +1,6 @@
+$kind: http-request
+name: Delete Post Tickets
+description: ""
+url: http://127.0.0.1:8000/tickets/7
+method: DELETE
+order: 4502753567309756

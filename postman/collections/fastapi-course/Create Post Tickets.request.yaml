@@ -1,0 +1,23 @@
+$kind: http-request
+name: Create Post Tickets
+description: ""
+url: http://127.0.0.1:8000/tickets
+method: POST
+auth:
+  type: bearer
+  credentials:
+    token: "{{access_token}}"
+body:
+  type: json
+  content: "{\r
+
+    \    \"title\": \"Dashboard chart not rendering\",\r
+
+    \    \"description\": \"Chart.js throwing console error on load\",\r
+
+    \    \"status\": \"open\",\r
+
+    \    \"priority\": \"medium\"\r
+
+    }"
+order: 4499535744052135

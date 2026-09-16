@@ -1,0 +1,6 @@
+$kind: http-request
+name: Get One Post
+description: ""
+url: http://127.0.0.1:8000/posts/5
+method: GET
+order: 4195952860929851

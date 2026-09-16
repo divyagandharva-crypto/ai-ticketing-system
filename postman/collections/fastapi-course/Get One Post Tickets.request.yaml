@@ -1,0 +1,19 @@
+$kind: http-request
+name: Get One Post Tickets
+description: ""
+url: http://127.0.0.1:8000/tickets/2
+method: GET
+body:
+  type: json
+  content: "{\r
+
+    \    \"title\": \"Email notifications not sending\",\r
+
+    \    \"description\": \"Users report they stopped receiving email alerts\",\r
+
+    \    \"status\": \"open\",\r
+
+    \    \"priority\": \"medium\"\r
+
+    }"
+order: 4498030126281023

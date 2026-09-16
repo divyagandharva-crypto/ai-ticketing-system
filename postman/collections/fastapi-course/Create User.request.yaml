@@ -1,0 +1,18 @@
+$kind: http-request
+description: ""
+url: http://127.0.0.1:8000/posts
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \r
+
+    \    \"title\":\"top beaches in florida\",\r
+
+    \    \"content\":\"checkout this beaches\",\r
+
+    \    \"rating\" : 4\r
+
+    }"
+order: 3693372953917807

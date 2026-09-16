@@ -1,0 +1,6 @@
+$kind: http-request
+name: http://127.0.0.1:8000/posts/latest
+description: ""
+url: http://127.0.0.1:8000/posts/latest
+method: GET
+order: 4503476611455491

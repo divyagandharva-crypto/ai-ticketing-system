@@ -1,0 +1,19 @@
+$kind: http-request
+name: Update Post Tickets
+description: ""
+url: http://127.0.0.1:8000/tickets/7
+method: PUT
+body:
+  type: json
+  content: "{\r
+
+    \    \"title\": \"Dashboard chart not rendering\",\r
+
+    \    \"description\": \"Fixed - was a version mismatch in Chart.js CDN link\",\r
+
+    \    \"status\": \"resolved\",\r
+
+    \    \"priority\": \"low\"\r
+
+    }"
+order: 4502780711237060

@@ -1,0 +1,22 @@
+$kind: http-request
+name: Get
+description: ""
+url: http://127.0.0.1:8000/posts
+method: GET
+body:
+  type: json
+  content: "{\r
+
+    \"title\" : \"top beches in florida\",\r
+
+    \"content\": \"something beaches\",\r
+
+    \"rating\":4\r
+
+    }"
+settings:
+  strictSSL: false
+  followRedirects: true
+  disableCookies: false
+  maxResponseSize: 52428800
+order: 3667501420726121

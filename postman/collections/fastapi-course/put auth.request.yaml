@@ -1,0 +1,19 @@
+$kind: http-request
+name: put auth
+description: ""
+url: http://127.0.0.1:8000/tickets/9
+method: PUT
+body:
+  type: json
+  content: "{\r
+
+    \    \"title\": \"Dashboard chart not rendering\",\r
+
+    \    \"description\": \"Fixed - Chart.js version pinned in package.json\",\r
+
+    \    \"status\": \"resolved\",\r
+
+    \    \"priority\": \"low\"\r
+
+    }"
+order: 4503478318112211

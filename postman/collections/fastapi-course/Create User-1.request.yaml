@@ -1,0 +1,15 @@
+$kind: http-request
+name: Create User
+description: ""
+url: http://127.0.0.1:8000/users
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \    \"email\": \"agent3@support.com\",\r
+
+    \    \"password\": \"mypassword123\"\r
+
+    }"
+order: 4503309754399554
