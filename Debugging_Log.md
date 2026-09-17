@@ -180,3 +180,86 @@ case.
 
 ## Days 13-14 agent: reconfirmed working end-to-end after key rotation
 `/agent/chat` on "help me to resolve ticket 1" chained four tools autonomously (get_ticket, analyze_ticket, find_similar_tickets, suggest_resolution) into one coherent answer — strongest demo of multi-step autonomous tool use yet.
+
+## Week 3 — Eval harness: BUILT AND RUN
+
+Built `eval_harness.py` covering 4 categories: retrieval quality, generation
+grounding (confidence calibration), tool-selection correctness, and
+prompt-injection resistance. Seeded 15 additional test tickets across
+login/auth, billing, urgent, cosmetic, and vague clusters via
+`seed_test_tickets.py`.
+
+First run: 9/10 passed.
+
+### Finding: confidence scoring can be inflated by a near-duplicate vague ticket
+- **Test:** ticket 17 ("Something's wrong" / "It doesn't work right") was
+  expected to get low confidence, since it has almost no actionable
+  information — same as the earlier ticket 4, which correctly got low
+  confidence in Day 14 testing.
+- **Actual:** ticket 17 got HIGH confidence instead.
+- **Root cause:** ticket 4 (created earlier, nearly identical wording) was
+  retrieved as a very close embedding match. The model interpreted having
+  a strong precedent match as grounds for higher confidence — but the
+  "precedent" was itself just as vague and uninformative. Precedent
+  matching and information-sufficiency are being conflated.
+- **Disposition:** kept as a documented finding rather than "fixed" — this
+  is a legitimate discovered failure mode, not a test bug. Worth citing in
+  a case study writeup as: confidence heuristics based on retrieval
+  similarity alone can be fooled when two low-information items are
+  similar to each other, independent of whether either one is actually
+  actionable. A more robust design would score confidence based on the
+  ticket's own information density, not just similarity to precedent.
+
+## Week 4 prep — RAG "known correct answer" eval: BUILT AND RUN
+
+Built a second, more rigorous eval layer on top of the Week 3 eval_harness.py:
+a 50-question set (`rag_eval_qa_full.py`) with known expected answers across
+10 categories (factual lookup, classification, retrieval, generation quality,
+near-duplicate awareness, multi-ticket comparison, ambiguous/underspecified
+questions, out-of-scope guardrails, prompt-injection variants, format/
+robustness), graded automatically by a Claude-as-judge script
+(`rag_eval_grader.py`) against the live `/agent/chat` endpoint.
+
+Where eval_harness.py checks structural correctness (right tool called,
+right IDs retrieved), this checks answer QUALITY — is the actual generated
+text correct, well-reasoned, and safe.
+
+**First run: false failure due to expired JWT (401s on most calls) —
+re-ran with a fresh token immediately before running.**
+
+**Second (clean) run: 48/50 correct.**
+
+### Finding 1: retrieval degrades in underrepresented clusters (q15)
+- Ticket 16 ("typo in welcome email," cosmetic cluster) failed to retrieve
+  ticket 15 (the only other cosmetic ticket) as most similar — it matched
+  login-cluster tickets instead.
+- Root cause: with only 2 tickets in the cosmetic cluster vs. 6+ in login,
+  there's far less embedding signal to anchor to, so a sparse cluster
+  loses out to a denser one during nearest-neighbor search.
+- Disposition: kept as a documented finding. Same underlying class of
+  issue as the ticket-17 confidence-inflation finding from Week 3 —
+  retrieval-based behavior is sensitive to how much data exists per
+  category, which matters for real deployments with imbalanced ticket
+  volume across issue types.
+
+### Finding 2 (partially a test-design flaw, partially a real question) (q44)
+- Prompt-injection test cases (q41-q45) embedded a fake ticket description
+  directly in the chat message text, but the grader script never actually
+  called POST /tickets/ to create a real ticket first — so there was no
+  real ticket behind the question.
+- Result: the agent picked an arbitrary existing ticket (ticket 1) and
+  answered about that instead of asking for clarification.
+- This is a bug in the eval script's design, not necessarily the agent —
+  but it surfaces a real, worth-investigating inconsistency: the agent
+  correctly asks for clarification on genuinely ambiguous questions with
+  no ticket reference at all (ambiguous category: 5/5), but here, given a
+  vague, unanchored "this ticket" reference with descriptive text but no
+  ID, it guessed instead of asking. Worth a follow-up eval case with a
+  *real* injected ticket to isolate whether this is really inconsistent
+  behavior or just an artifact of the malformed test.
+- Note for future eval design: any test case that references "the ticket
+  just created" must actually create it via the real API first, not just
+  describe it in the question text.
+
+Files pushed to GitHub: rag_eval_qa_full.py, rag_eval_grader.py,
+rag_eval_results.json.
