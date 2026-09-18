@@ -4,6 +4,33 @@ A customer support ticketing API built with FastAPI, demonstrating a full RAG (r
 
 Built as a hands-on portfolio project for AI/Forward Deployed Engineer roles — every piece here was built and tested end-to-end, not scaffolded from a tutorial.
 
+## Live demo
+
+Deployed and running: **https://ai-ticketing-system-omfc.onrender.com**
+
+Interactive API docs (Swagger UI): **https://ai-ticketing-system-omfc.onrender.com/docs**
+
+> Hosted on Render's free tier, so the first request after a period of inactivity can take 30–60 seconds to wake up. Every request after that is fast.
+
+### Try it yourself (no local setup required)
+
+1. Open the [Swagger UI](https://ai-ticketing-system-omfc.onrender.com/docs).
+2. **Create a test user** — expand `POST /users/`, click "Try it out", and submit:
+   ```json
+   { "email": "yourname@example.com", "password": "yourpassword" }
+   ```
+3. **Log in** — expand `POST /login`, click "Try it out", enter the same email/password, and submit. Copy the `access_token` from the response.
+4. **Authorize** — click the "Authorize" button near the top of the page, paste the token in, and click Authorize. This attaches it to every request below.
+5. **Create a ticket** — `POST /tickets/` with a `title` and `description`.
+6. **See the AI features in action:**
+   - `POST /tickets/{id}/analyze` — Claude classifies category/urgency and summarizes the ticket
+   - `GET /tickets/{id}/similar` — pgvector cosine-similarity search against past tickets
+   - `GET /tickets/{id}/suggest-resolution` — retrieves similar tickets and asks Claude for a grounded resolution
+   - `POST /agent/chat` with `{ "message": "help me resolve ticket <id>" }` — the free-form tool-use agent picks which tools to call on its own
+   - `POST /agent/resolve-graph/{id}` — the LangGraph pipeline, with a confidence-based branch to a "needs human review" step
+
+Every endpoint is documented and runnable directly from Swagger — no Postman or local setup needed to see it work.
+
 ## What it does
 
 - Standard ticketing CRUD: create, read, update, delete tickets; comments on tickets; JWT-based auth
