@@ -7,6 +7,7 @@ class TicketBase(BaseModel):
     description: str
     status: str = "open"
     priority: str = "medium"
+    access_level: str = "standard"   # NEW
 
 class TicketCreate(TicketBase):
     pass
@@ -27,6 +28,7 @@ class UserCreate(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: EmailStr
+    clearance_level: str   # NEW — lets a user (or an admin UI) see their own clearance
     created_at: datetime
 
     class Config:
@@ -64,8 +66,12 @@ class CommentOut(BaseModel):
 class TicketWithCommentsOut(BaseModel):
     id: int
     title: str
+    access_level: str   # NEW — surfaced so a client can render sensitivity in the UI
     comments: list[CommentOut] = []
+
     class Config:
-        from_attributes = True
-    class Config:
+        # NOTE: this used to be declared twice, which silently dropped
+        # from_attributes (the second Config overwrote the first). Fixed
+        # to a single Config block with both settings.
         orm_mode = True
+        from_attributes = True

@@ -5,6 +5,7 @@ from .. import models, schemas, oauth2
 from ..database import get_db
 from .. import ai
 from ..embeddings import embed_text
+from ..access_control import user_can_access, allowed_levels_for
 
 
 router = APIRouter(
@@ -13,16 +14,33 @@ router = APIRouter(
 )
 
 
+# Shared "not found" response used whenever a ticket either doesn't exist
+# or the requesting user isn't cleared to see it. Deliberately identical
+# in both cases — a 403 (vs 404) would confirm to an unauthorized caller
+# that a restricted ticket with that ID exists, which is itself a leak.
+def _not_found(ticket_id: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"ticket with id: {ticket_id} was not found",
+    )
+
+
 @router.get("/", response_model=List[schemas.Ticket])
-def get_tickets(db: Session = Depends(get_db), limit: int = 10, skip: int = 0, search: Optional[str] = ""):
-    tickets = db.query(models.Ticket).filter(
-        models.Ticket.title.contains(search)
-    ).limit(limit).offset(skip).all()
+def get_tickets(db: Session = Depends(get_db), limit: int = 10, skip: int = 0, search: Optional[str] = "",
+                 current_user: models.User = Depends(oauth2.get_current_user)):
+    allowed = allowed_levels_for(current_user.clearance_level)
+    tickets = (
+        db.query(models.Ticket)
+        .filter(models.Ticket.title.contains(search))
+        .filter(models.Ticket.access_level.in_(allowed))
+        .limit(limit).offset(skip).all()
+    )
     return tickets
 
 
 @router.get("/{ticket_id}", response_model=schemas.TicketWithCommentsOut)
-def read_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def read_ticket(ticket_id: int, db: Session = Depends(get_db),
+                 current_user: models.User = Depends(oauth2.get_current_user)):
     ticket = (
         db.query(models.Ticket)
         .options(
@@ -31,8 +49,8 @@ def read_ticket(ticket_id: int, db: Session = Depends(get_db)):
         .filter(models.Ticket.id == ticket_id)
         .first()
     )
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {ticket_id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(ticket_id)
     return ticket
 
 
@@ -52,8 +70,8 @@ def update_ticket(id: int, ticket: schemas.TicketCreate, db: Session = Depends(g
                    current_user: models.User = Depends(oauth2.get_current_user)):
     ticket_query = db.query(models.Ticket).filter(models.Ticket.id == id)
     existing_ticket = ticket_query.first()
-    if existing_ticket is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {id} was not found")
+    if not existing_ticket or not user_can_access(current_user.clearance_level, existing_ticket.access_level):
+        raise _not_found(id)
     ticket_query.update(ticket.dict(), synchronize_session=False)
     db.commit()
     return ticket_query.first()
@@ -64,8 +82,8 @@ def delete_ticket(id: int, db: Session = Depends(get_db),
                    current_user: models.User = Depends(oauth2.get_current_user)):
     ticket_query = db.query(models.Ticket).filter(models.Ticket.id == id)
     ticket = ticket_query.first()
-    if ticket is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(id)
     ticket_query.delete(synchronize_session=False)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -75,8 +93,8 @@ def delete_ticket(id: int, db: Session = Depends(get_db),
 def create_comment(ticket_id: int, comment: schemas.CommentCreate, db: Session = Depends(get_db),
                     current_user: models.User = Depends(oauth2.get_current_user)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {ticket_id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(ticket_id)
     new_comment = models.Comment(ticket_id=ticket_id, user_id=current_user.id, **comment.dict())
     db.add(new_comment)
     db.commit()
@@ -85,35 +103,44 @@ def create_comment(ticket_id: int, comment: schemas.CommentCreate, db: Session =
 
 
 @router.get("/{ticket_id}/comments", response_model=List[schemas.Comment])
-def get_comments(ticket_id: int, db: Session = Depends(get_db)):
+def get_comments(ticket_id: int, db: Session = Depends(get_db),
+                  current_user: models.User = Depends(oauth2.get_current_user)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {ticket_id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(ticket_id)
     comments = db.query(models.Comment).filter(models.Comment.ticket_id == ticket_id).all()
     return comments
 
 
 @router.post("/{id}/analyze")
-def analyze_ticket(id: int, db: Session = Depends(get_db)):
+def analyze_ticket(id: int, db: Session = Depends(get_db),
+                    current_user: models.User = Depends(oauth2.get_current_user)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == id).first()
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(id)
 
     analysis = ai.analyze_ticket(ticket.title, ticket.description)
     return {"data": analysis}
 
 
 @router.get("/{id}/similar", response_model=List[schemas.Ticket])
-def get_similar_tickets(id: int, limit: int = 5, db: Session = Depends(get_db)):
+def get_similar_tickets(id: int, limit: int = 5, db: Session = Depends(get_db),
+                         current_user: models.User = Depends(oauth2.get_current_user)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == id).first()
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(id)
     if ticket.embedding is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This ticket has no embedding yet — run the backfill script.")
 
+    # The actual fix: access_level is filtered in the WHERE clause,
+    # before cosine-distance ranking runs — not after. A ticket the
+    # user isn't cleared for is never a candidate, never ranked, and
+    # never returned, rather than being fetched and then hidden.
+    allowed = allowed_levels_for(current_user.clearance_level)
     similar = (
         db.query(models.Ticket)
         .filter(models.Ticket.id != id)
+        .filter(models.Ticket.access_level.in_(allowed))
         .order_by(models.Ticket.embedding.cosine_distance(ticket.embedding))
         .limit(limit)
         .all()
@@ -122,16 +149,23 @@ def get_similar_tickets(id: int, limit: int = 5, db: Session = Depends(get_db)):
 
 
 @router.get("/{id}/suggest-resolution")
-def suggest_resolution(id: int, limit: int = 3, db: Session = Depends(get_db)):
+def suggest_resolution(id: int, limit: int = 3, db: Session = Depends(get_db),
+                        current_user: models.User = Depends(oauth2.get_current_user)):
     ticket = db.query(models.Ticket).filter(models.Ticket.id == id).first()
-    if not ticket:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ticket with id: {id} was not found")
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(id)
     if ticket.embedding is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This ticket has no embedding yet — run the backfill script.")
 
+    # Same fix as /similar, and it matters more here: this filtered set
+    # is what gets serialized into the prompt sent to Claude. A ticket
+    # excluded at the WHERE clause never has a chance to leak into a
+    # generated suggestion — the model never sees it in the first place.
+    allowed = allowed_levels_for(current_user.clearance_level)
     similar = (
         db.query(models.Ticket)
         .filter(models.Ticket.id != id)
+        .filter(models.Ticket.access_level.in_(allowed))
         .order_by(models.Ticket.embedding.cosine_distance(ticket.embedding))
         .limit(limit)
         .all()

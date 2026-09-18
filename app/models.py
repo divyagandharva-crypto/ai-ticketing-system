@@ -13,6 +13,7 @@ class Ticket(Base):
     description = Column(String, nullable=False)
     status = Column(String, nullable=False, server_default='open')
     priority = Column(String, nullable=False, server_default='medium')
+    access_level = Column(String, nullable=False, server_default='standard')   # NEW
     created_by = Column(Integer, ForeignKey("users.id"))
     assigned_to = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
@@ -29,6 +30,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, nullable=False)
     email = Column(String, nullable=False, unique=True)
     password = Column(String, nullable=False)
+    clearance_level = Column(String, nullable=False, server_default='standard')   # NEW
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
 
 
