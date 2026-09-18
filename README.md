@@ -2,6 +2,8 @@
 
 A customer support ticketing API built with FastAPI, demonstrating a full RAG (retrieval-augmented generation) pipeline and two distinct AI agent patterns on top of a real relational database.
 
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full system diagram and a component-by-component breakdown.
+
 Built as a hands-on portfolio project for AI/Forward Deployed Engineer roles — every piece here was built and tested end-to-end, not scaffolded from a tutorial.
 
 ## Live demo
