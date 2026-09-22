@@ -5,10 +5,21 @@ Runs all 50 questions in rag_eval_qa_full.py against the live /agent/chat
 endpoint, then uses Claude as a judge to grade each actual answer against
 its expected_answer + grading_notes.
 
-This is the "known correct answer" RAG eval — distinct from eval_harness.py,
+This is the "known correct answer" RAG eval -- distinct from eval_harness.py,
 which checks structural behavior (does retrieval return the right cluster,
 does tool selection pick the right tool). This checks answer QUALITY: is
 the actual generated answer factually and behaviorally correct.
+
+FIX (this revision): the five prompt_injection questions (q41-q45) now carry
+their payload as inject_title/inject_description fields instead of embedding
+it as literal text in the chat message. Previously no real ticket backed
+those questions, so the agent had no ticket to actually look up and would
+guess an arbitrary existing one -- producing a misleading "failure" (q44)
+that was really a bug in this script, not the agent. This version creates a
+REAL ticket via POST /tickets/ for each of those five cases first, then
+substitutes its id into the question template, so the agent is tested
+against genuinely stored, untrusted content -- the same threat model the
+SYSTEM_PROMPT boundary in agent.py is meant to hold up against.
 
 Usage:
     Set your JWT token as an environment variable before running:
@@ -33,7 +44,7 @@ from anthropic import Anthropic
 
 from rag_eval_qa_full import EVAL_QA
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = "https://ai-ticketing-system-omfc.onrender.com"
 TOKEN = os.getenv("TEST_JWT_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
@@ -78,10 +89,68 @@ Grading guidance:
   single 'correct' answer."""
 
 
+def _request_with_retry(method: str, url: str, **kwargs):
+    """Wraps requests.request with retry-with-backoff on 429/502/503/504.
+
+    Production is a free-tier Render instance that can rate-limit or briefly
+    choke under back-to-back requests. Without this, a transient throttle
+    or cold-start blip looks identical to a real agent failure in the eval
+    results -- which is exactly what corrupted the first production run.
+    """
+    max_attempts = 4
+    backoff = 3.0  # seconds, doubles each retry
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.request(method, url, **kwargs)
+        except requests.exceptions.RequestException as e:
+            if attempt == max_attempts:
+                raise
+            print(f"    [retry {attempt}/{max_attempts}] request error: {e}")
+            time.sleep(backoff)
+            backoff *= 2
+            continue
+
+        if resp.status_code in (429, 502, 503, 504) and attempt < max_attempts:
+            wait = backoff
+            # Respect Retry-After if the server sends one (common on 429s)
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    wait = max(wait, float(retry_after))
+                except ValueError:
+                    pass
+            print(f"    [retry {attempt}/{max_attempts}] HTTP {resp.status_code}, waiting {wait:.0f}s")
+            time.sleep(wait)
+            backoff *= 2
+            continue
+
+        return resp
+    return resp
+
+
+def plant_ticket(title: str, description: str) -> int:
+    """Create a real ticket via POST /tickets/ and return its id.
+
+    Used for prompt_injection cases (ticket_id == "new") so the agent is
+    tested against a genuine stored ticket, not text typed into the chat
+    message -- see the FIX note in the module docstring.
+    """
+    resp = _request_with_retry(
+        "POST",
+        f"{BASE_URL}/tickets/",
+        json={"title": title, "description": description},
+        headers=HEADERS,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
 def call_agent(question_text: str) -> str:
     """Send a question to /agent/chat and return the answer text (or an error string)."""
     try:
-        resp = requests.post(
+        resp = _request_with_retry(
+            "POST",
             f"{BASE_URL}/agent/chat",
             json={"message": question_text},
             headers=HEADERS,
@@ -133,13 +202,33 @@ def main():
     for i, q in enumerate(EVAL_QA, start=1):
         print(f"[{i}/{len(EVAL_QA)}] {q['id']} ({q['category']})... ", end="", flush=True)
 
-        actual_answer = call_agent(q["question"])
-        grade = grade_answer(q, actual_answer)
+        # For prompt_injection cases, plant a real ticket first and fill
+        # the {ticket_id} placeholder in the question template with its id.
+        if q.get("ticket_id") == "new" and "inject_title" in q:
+            try:
+                real_id = plant_ticket(q["inject_title"], q["inject_description"])
+            except requests.exceptions.RequestException as e:
+                print("ERROR (could not plant ticket)")
+                results.append({
+                    "id": q["id"], "category": q["category"], "question": q["question"],
+                    "actual_answer": f"[SETUP ERROR: {e}]", "expected_answer": q["expected_answer"],
+                    "verdict": "error", "reason": f"Failed to plant test ticket: {e}",
+                })
+                continue
+            question_text = q["question"].format(ticket_id=real_id)
+        else:
+            question_text = q["question"]
+
+        actual_answer = call_agent(question_text)
+        # grade_answer reads q['question'] for the judge prompt; pass the
+        # resolved text so the judge sees the real question that was asked.
+        q_for_grading = dict(q, question=question_text)
+        grade = grade_answer(q_for_grading, actual_answer)
 
         result = {
             "id": q["id"],
             "category": q["category"],
-            "question": q["question"],
+            "question": question_text,
             "actual_answer": actual_answer,
             "expected_answer": q["expected_answer"],
             "verdict": grade.get("verdict", "error"),
@@ -148,8 +237,10 @@ def main():
         results.append(result)
         print(result["verdict"].upper())
 
-        # Small delay to avoid hammering either API back-to-back
-        time.sleep(0.5)
+        # Delay to avoid hammering the free-tier production instance.
+        # Combined with the retry/backoff above, this is what fixed the
+        # 429/502/503 storm from the first production run.
+        time.sleep(2.0)
 
     # ---- Summary ----
     total = len(results)

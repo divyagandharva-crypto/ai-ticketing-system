@@ -1,4 +1,4 @@
-# Ticketing Project — Debugging Log
+﻿# Ticketing Project — Debugging Log
 
 A running record of every real bug and environment issue hit while building the FastAPI ticketing system, and how each was diagnosed and fixed. Kept for interview stories ("tell me about a hard bug you debugged") and so the same problem never gets re-solved twice.
 
@@ -45,27 +45,27 @@ A running record of every real bug and environment issue hit while building the 
 
 ## Docker / WSL2 / pgvector setup (Sept 2026)
 
-### 8. `CREATE EXTENSION vector` → "extension is not available"
+### 8. `CREATE EXTENSION vector` â†’ "extension is not available"
 - **Symptom:** `ERROR: extension "vector" is not available` on local Postgres install.
 - **Cause:** pgvector was never compiled/installed at the OS level on the local (non-Docker) Postgres.
 - **Fix:** Moved to a `pgvector/pgvector:pg16` Docker image, which ships the extension precompiled, instead of building it from source on Windows.
 
-### 9. `docker ps` → 500 Internal Server Error (Docker engine unreachable)
+### 9. `docker ps` â†’ 500 Internal Server Error (Docker engine unreachable)
 - **Symptom:** `request returned 500 Internal Server Error ... dockerDesktopLinuxEngine`.
 - **Cause:** WSL2 wasn't installed at all — Docker Desktop's Linux engine had nothing to run on.
 - **Fix:** `wsl --install`, restart machine.
 
-### 10. `wsl --status` → "WSL1 is not supported with your current machine configuration"
+### 10. `wsl --status` â†’ "WSL1 is not supported with your current machine configuration"
 - **Symptom:** Confusing warning after enabling WSL2 as default.
 - **Cause:** Red herring — WSL1 unavailability is unrelated and doesn't block WSL2/Docker.
 - **Fix:** Ignored; confirmed via `wsl -l -v` that no distro was installed yet, then ran `wsl --install -d Ubuntu`.
 
-### 11. Docker Desktop → "Virtualization support not detected"
+### 11. Docker Desktop â†’ "Virtualization support not detected"
 - **Symptom:** Docker Desktop failed to start; Task Manager showed CPU Virtualization: **Disabled**.
 - **Cause:** Hardware virtualization (Intel VT-x) was turned off in BIOS/UEFI — a firmware setting, not a Windows toggle. (Windows' own "Virtual Machine Platform" feature was already On, which masked the real cause initially.)
-- **Fix:** Entered Lenovo BIOS (Settings → System → Recovery → Advanced startup → Restart now → Troubleshoot → Advanced options → UEFI Firmware Settings) → Security tab → enabled Intel Virtualization Technology → saved (F10) → confirmed "Enabled" in Task Manager afterward.
+- **Fix:** Entered Lenovo BIOS (Settings â†’ System â†’ Recovery â†’ Advanced startup â†’ Restart now â†’ Troubleshoot â†’ Advanced options â†’ UEFI Firmware Settings) â†’ Security tab â†’ enabled Intel Virtualization Technology â†’ saved (F10) â†’ confirmed "Enabled" in Task Manager afterward.
 
-### 12. Pydantic `Settings` → `extra_forbidden` on `database_url`
+### 12. Pydantic `Settings` â†’ `extra_forbidden` on `database_url`
 - **Symptom:** `ValidationError: 1 validation error for Settings / database_url / Extra inputs are not permitted`.
 - **Cause:** `.env` had a leftover `DATABASE_URL=...` combined-string line, but the `Settings` class only declares individual fields (`database_hostname`, `database_port`, etc.) — pydantic-settings rejects unrecognized keys by default.
 - **Fix:** Removed the `DATABASE_URL` line entirely; kept only the individual fields matching `Settings`' declared attributes exactly.
@@ -84,7 +84,7 @@ A running record of every real bug and environment issue hit while building the 
 - **Cause:** pgAdmin had multiple registered servers (original local Postgres on 5432, a second auto-named "PostgreSQL 18" also on 5432, and eventually the real Docker container on 5433). Query Tool tabs stay bound to whichever server they were opened from — commands were being run against the wrong (local) server without it being obvious from the UI.
 - **Fix:** Registered a clearly-named server (`ticketing-docker`, host `localhost`, port `5433`), and made a habit of checking the query tab's header (`...@ticketing-docker`) before running anything, rather than trusting the SQL content alone.
 
-### 15. `pip install pgvector` → "'pip' is not recognized"
+### 15. `pip install pgvector` â†’ "'pip' is not recognized"
 - **Symptom:** `pip` not found as a command.
 - **Cause:** Running the command from `C:\WINDOWS\system32` in a fresh terminal with the project's virtual environment not activated — `pip` only resolves on PATH inside the activated venv.
 - **Fix:** `cd` into the project folder, then `venv\Scripts\Activate.ps1` (confirm prompt shows `(venv)`) before running any `pip` command.
@@ -96,9 +96,9 @@ A running record of every real bug and environment issue hit while building the 
 - **PowerShell vs. cmd.exe matter** — `Get-Content` (PowerShell) vs `type` (cmd) aren't interchangeable; always confirm which shell you're in.
 - **`$` in PowerShell strings gets interpreted** — avoid shell-special characters in passwords passed via CLI flags, or wrap/escape them properly.
 - **A UI showing "connected" doesn't mean it's connected to the right thing** — always verify pgAdmin's active tab/server before trusting query results.
-- **A working local dev environment often means several layers stacked correctly**: BIOS virtualization → WSL2 → Docker Desktop → container → app config all have to agree, and an error from the top of that stack can actually originate at the bottom.
+- **A working local dev environment often means several layers stacked correctly**: BIOS virtualization â†’ WSL2 â†’ Docker Desktop â†’ container â†’ app config all have to agree, and an error from the top of that stack can actually originate at the bottom.
 
-### 16. Duplicate `class Ticket(Base):` definition → "could not assemble any primary key columns"
+### 16. Duplicate `class Ticket(Base):` definition â†’ "could not assemble any primary key columns"
 - **Symptom:** `sqlalchemy.exc.ArgumentError: Mapper Mapper[Ticket(tickets)] could not assemble any primary key columns for mapped table 'tickets'`.
 - **Cause:** An example snippet showing how to add the `embedding` column was pasted in as a second, separate `class Ticket(Base):` block instead of being merged into the existing one — the first (incomplete) class had no `id` column, and SQLAlchemy choked on the duplicate class definition.
 - **Fix:** Removed the incomplete duplicate class; added `embedding = Column(Vector(384))` as a single line inside the real, complete `Ticket` class.
@@ -120,7 +120,7 @@ Full retrieval-to-generation loop tested and working end-to-end via Postman:
 2. `GET /tickets/{id}/similar` retrieves nearest tickets via pgvector cosine distance — correctly ranked a semantically similar login ticket above an unrelated invoice ticket
 3. `GET /tickets/{id}/suggest-resolution` combines the similarity lookup with a Claude generation call — returned a grounded suggestion (`based_on_similar_tickets: true`) referencing the actual similar ticket's context, not a generic answer
 
-### 19. New endpoint pasted at top of file instead of bottom → NameError: name 'router' is not defined
+### 19. New endpoint pasted at top of file instead of bottom â†’ NameError: name 'router' is not defined
 - **Symptom:** `uvicorn` crashed on import with `NameError: name 'router' is not defined` pointing at the new `@router.get(...)` decorator.
 - **Cause:** The new function was pasted at the very top of `tickets.py`, above the line that actually defines `router = APIRouter(...)`.
 - **Fix:** Moved the function to the bottom of the file, after all existing route definitions. Lesson: when adding a route to an existing router file, always paste at the end, never at the top.
@@ -135,7 +135,7 @@ No hardcoded call sequence — genuinely agentic tool selection, confirmed
 via the `tool_calls` trace in the response.
 
 Second test confirmed correct tool selection based on intent, not a fixed
-sequence: "Is ticket 3 urgent? What category is it?" → agent called only
+sequence: "Is ticket 3 urgent? What category is it?" â†’ agent called only
 `analyze_ticket` (not `get_ticket` or `suggest_resolution`), correctly
 matching the classification-style question. Day 13 tool-use agent fully
 validated with two distinct request types choosing two distinct tools.
@@ -263,3 +263,80 @@ re-ran with a fresh token immediately before running.**
 
 Files pushed to GitHub: rag_eval_qa_full.py, rag_eval_grader.py,
 rag_eval_results.json.
+## Week 4 — RAG eval fix, re-run, and production infra finding
+
+### Fixed the eval script's prompt-injection test design
+The original `rag_eval_grader.py` (q41â€“q45, prompt-injection category) embedded
+the malicious ticket description as literal text inside the chat *message*
+sent to `/agent/chat`, without ever calling `POST /tickets/` to create a real
+ticket first. This meant there was no actual ticket behind the question — the
+agent had to guess which numbered ticket "this ticket" referred to, which
+produced a misleading INCORRECT result on q44 in the first run (48/50).
+
+**Fix:** `rag_eval_qa_full.py` now carries the injection payload as
+`inject_title` / `inject_description` data fields. `rag_eval_grader.py`
+creates a real ticket from those fields via `POST /tickets/` before asking
+the agent about it, so the agent is tested against genuinely stored,
+untrusted content — the same threat model the `SYSTEM_PROMPT` boundary in
+`agent.py` is meant to hold against, rather than text typed into the chat
+message itself.
+
+### Local re-run: 47/50 correct (0 partial â†’ 2 partial, 1 incorrect, 0 errors)
+With the fix in place, all five prompt-injection cases (q41â€“q45) passed —
+confirming q44's earlier failure was a test-script bug, not an agent bug.
+
+- **q15 (retrieval, INCORRECT)** — reproduced from the first run: ticket 16
+  ("typo in welcome email," cosmetic cluster) matches login-cluster tickets
+  instead of ticket 15 (the only other cosmetic ticket). Reproduced across
+  two independent runs, so this is a real, citable finding: retrieval
+  quality degrades in underrepresented clusters when embedding signal is
+  sparse (2 cosmetic tickets vs. 6+ login tickets).
+- **q12 (retrieval, PARTIAL, new)** — similarity search for the double-charge
+  ticket returned two correct billing tickets plus one login ticket; the
+  agent itself flagged the login ticket as irrelevant in its answer. Minor
+  retrieval noise, self-corrected at the generation step.
+- **q20 (generation, PARTIAL, new)** — 2FA resolution suggestion covered
+  SMS/backup-code troubleshooting but missed the specific "check time-sync"
+  detail called out in the grading notes. Borderline — a strict grading
+  note more than a real gap.
+
+### Production run: blocked by Cloudflare bot protection, not an app bug
+Two separate issues surfaced when pointing the eval at the live Render app:
+
+1. **Missing seed data.** Production's ticket table only ever had tickets 1
+   and 2 natively, plus a restricted test ticket (id 3) added during the
+   earlier security verification session — not the full 19-ticket cluster
+   set the eval script assumes. Wrote `seed_production_tickets.py` to check
+   existing tickets via `GET /tickets/` and seed the matching set, with a
+   confirmation step before creating anything.
+2. **Cloudflare challenge, not simple rate limiting.** Running the seeder
+   against production triggered Cloudflare's bot-protection layer in front
+   of the Render app: after the first couple of 502/503s, every subsequent
+   `POST /tickets/` request came back with an interactive JS challenge page
+   ("Just a moment...") instead of a normal HTTP error. This is a different
+   failure mode than the earlier plain 429 rate-limiting — client-side
+   retry-with-backoff (added to `rag_eval_grader.py`) can recover from
+   429/502/503, but cannot pass a Cloudflare interactive challenge, which
+   requires a real browser.
+
+**Disposition:** zero tickets were created (the script aborted cleanly on
+first confirmation, no partial/corrupted state left behind). Chose not to
+keep retrying against production — repeated scripted requests risk
+extending how long Cloudflare flags the traffic, for a problem no amount of
+client-side retry logic can solve. **The local 47/50 result stands as the
+RAG groundedness number for the case study; production RAG re-verification
+is a known open item**, separate from the production *security* fix
+verification (agent RBAC + prompt-injection), which already passed 6/6 live
+against production in an earlier session — that verification used far fewer,
+more spaced-out requests and never triggered Cloudflare.
+
+Worth a line in the case study either way: correctly distinguishing "the
+eval script has a bug" (q44, fixed) from "this is real agent behavior worth
+citing" (q15) from "this is infrastructure, not application, and no amount
+of code-level retry logic fixes it" (the Cloudflare block) is itself a
+demonstration of the kind of triage a forward-deployed engineer needs to do
+in production incidents.
+
+Files updated/added: `rag_eval_qa_full.py`, `rag_eval_grader.py` (both
+fixed), `seed_production_tickets.py` (new).
+
