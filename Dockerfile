@@ -14,7 +14,17 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
+# Download the embedding model at BUILD time. Without this, the first ticket created
+# in a fresh container downloads ~90MB from Hugging Face and the request hangs.
+ENV HF_HOME=/opt/hf
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && chmod -R a+rX /opt/hf
+
 COPY . .
+
+# Do not run as root inside the container.
+RUN useradd --create-home appuser
+USER appuser
 
 EXPOSE 8000
 

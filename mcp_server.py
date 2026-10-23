@@ -15,7 +15,7 @@ That's the interview-ready point: the tool LAYER is portable. Only the
 orchestration pattern around it changes.
 
 Install:
-    pip install mcp
+    pip install "mcp[cli]<2"
 
 Run:
     python mcp_server.py
@@ -26,16 +26,29 @@ standalone and left open -- see mcp_config_example.json for how Claude
 Desktop is told to launch it.
 """
 
+import os
+
 from mcp.server.fastmcp import FastMCP
 
 from app.database import SessionLocal
 from app import models, ai
+from app.access_control import user_can_access, allowed_levels_for
 
 mcp = FastMCP("ticketing-system")
 
+# Access control: this server acts as ONE identity with a fixed clearance, chosen by the
+# operator who launches it (env var MCP_CLEARANCE: standard | elevated | restricted).
+# Default is the lowest level (fail closed). Tickets above that clearance look exactly like
+# missing tickets, and are excluded from similarity search BEFORE ranking, so they never
+# reach a model prompt. Same rules as app/routers/tickets.py.
+MCP_CLEARANCE = os.environ.get("MCP_CLEARANCE", "standard")
+
 
 def _get_ticket_row(db, ticket_id: int):
-    return db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == ticket_id).first()
+    if ticket is not None and not user_can_access(MCP_CLEARANCE, ticket.access_level):
+        return None
+    return ticket
 
 
 @mcp.tool()
@@ -70,6 +83,7 @@ def find_similar_tickets(ticket_id: int, limit: int = 3) -> dict:
         similar = (
             db.query(models.Ticket)
             .filter(models.Ticket.id != ticket.id)
+            .filter(models.Ticket.access_level.in_(allowed_levels_for(MCP_CLEARANCE)))
             .order_by(models.Ticket.embedding.cosine_distance(ticket.embedding))
             .limit(limit)
             .all()
@@ -110,6 +124,7 @@ def suggest_resolution(ticket_id: int) -> dict:
         similar = (
             db.query(models.Ticket)
             .filter(models.Ticket.id != ticket.id)
+            .filter(models.Ticket.access_level.in_(allowed_levels_for(MCP_CLEARANCE)))
             .order_by(models.Ticket.embedding.cosine_distance(ticket.embedding))
             .limit(3)
             .all()

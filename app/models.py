@@ -1,5 +1,5 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, String, TIMESTAMP, ForeignKey, Text, Index, func
 from sqlalchemy.sql.expression import text
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -45,3 +45,20 @@ class Comment(Base):
 
     ticket = relationship("Ticket", back_populates="comments")
     author = relationship("User")
+
+class Job(Base):
+    """Background job queue row. See app/jobs.py for how it is used."""
+    __tablename__ = "jobs"
+    __table_args__ = (Index("ix_jobs_status_run_at", "status", "run_at"),)
+
+    id = Column(Integer, primary_key=True, nullable=False)
+    ticket_id = Column(Integer, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_type = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending", server_default="pending")   # pending | running | succeeded | failed
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts = Column(Integer, nullable=False, default=5, server_default="5")
+    last_error = Column(Text)
+    result = Column(Text)
+    run_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'), onupdate=func.now())

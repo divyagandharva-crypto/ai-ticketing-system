@@ -1,9 +1,11 @@
+import json
 from typing import List, Optional
 from fastapi import APIRouter, Response, status, HTTPException, Depends
 from sqlalchemy.orm import Session, joinedload
 from .. import models, schemas, oauth2
 from ..database import get_db
-from .. import ai
+from .. import ai, jobs
+from ..config import settings
 from ..embeddings import embed_text
 from ..access_control import user_can_access, allowed_levels_for
 
@@ -60,6 +62,10 @@ def create_ticket(ticket: schemas.TicketCreate, db: Session = Depends(get_db),
     embedding = embed_text(f"{ticket.title} {ticket.description}")
     new_ticket = models.Ticket(created_by=current_user.id, embedding=embedding, **ticket.dict())
     db.add(new_ticket)
+    db.flush()   # assigns new_ticket.id without committing
+    if settings.auto_analyze_tickets:
+        # Same transaction as the ticket: both commit, or neither does.
+        jobs.enqueue(db, new_ticket.id, "analyze_ticket")
     db.commit()
     db.refresh(new_ticket)
     return new_ticket
@@ -121,6 +127,30 @@ def analyze_ticket(id: int, db: Session = Depends(get_db),
 
     analysis = ai.analyze_ticket(ticket.title, ticket.description)
     return {"data": analysis}
+
+
+@router.get("/{id}/analysis")
+def get_ticket_analysis(id: int, db: Session = Depends(get_db),
+                         current_user: models.User = Depends(oauth2.get_current_user)):
+    """Status/result of the background AI triage job for a ticket (same access rules as the ticket)."""
+    ticket = db.query(models.Ticket).filter(models.Ticket.id == id).first()
+    if not ticket or not user_can_access(current_user.clearance_level, ticket.access_level):
+        raise _not_found(id)
+    job = (
+        db.query(models.Job)
+        .filter(models.Job.ticket_id == id, models.Job.job_type == "analyze_ticket")
+        .order_by(models.Job.id.desc())
+        .first()
+    )
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no analysis job for this ticket")
+    # last_error is deliberately not returned: internal error text stays in the database/logs.
+    return {
+        "ticket_id": id,
+        "status": job.status,
+        "attempts": job.attempts,
+        "result": json.loads(job.result) if job.result else None,
+    }
 
 
 @router.get("/{id}/similar", response_model=List[schemas.Ticket])

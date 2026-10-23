@@ -1,0 +1,39 @@
+# Run the whole stack (API + Postgres with pgvector) with one command:
+#
+#   docker compose up --build
+#
+# Reads your existing .env for secrets (SECRET_KEY, ANTHROPIC_API_KEY, DATABASE_PASSWORD, ...).
+# DATABASE_HOSTNAME/PORT are overridden below so the API talks to the "db" container, so your
+# local .env (which points at localhost:5433) keeps working for non-Docker runs.
+# The db port is not published, so it will not clash with your existing ticketing-pg container.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME:-ticketing_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-pgvector.sql:/docker-entrypoint-initdb.d/01-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_HOSTNAME: db
+      DATABASE_PORT: "5432"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

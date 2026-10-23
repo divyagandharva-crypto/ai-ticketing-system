@@ -130,3 +130,34 @@ The agent autonomously calls `get_ticket`, then decides on its own to call `sugg
 - The practical difference between an LLM feature (one hardcoded prompt) and an actual agent (model-driven tool selection)
 - When to use free-form tool-use versus a governed, auditable graph with explicit safety branches
 - End-to-end debugging of a real local dev environment (Docker, WSL2, pgvector) — see `Debugging_Log.md` for the full trail of issues hit and how each was resolved
+
+## Running with Docker
+
+The whole stack (API + Postgres with pgvector) starts with one command. It reads secrets from your `.env`:
+
+```bash
+docker compose up --build
+```
+
+The API is then at `http://localhost:8000/docs`. The image pre-downloads the embedding model at build time and runs as a non-root user. The compose file creates the pgvector extension automatically.
+
+## Background jobs
+
+Creating a ticket also queues an AI triage job (category, urgency, summary) in a Postgres-backed queue, so the request returns immediately instead of waiting on Claude.
+
+- **Retries:** transient failures (rate limits, timeouts, connection errors, malformed model output) retry with exponential backoff and jitter, up to 5 attempts. Permanent failures (bad key, invalid request, deleted ticket) fail immediately.
+- **Safe to scale:** jobs are claimed with `SELECT ... FOR UPDATE SKIP LOCKED`, so several workers never take the same job. Jobs abandoned by a crashed worker are returned to the queue.
+- **Transactional enqueue:** the job row commits in the same transaction as the ticket.
+- **Check the result:** `GET /tickets/{id}/analysis` (same access rules as the ticket).
+- **Run it:** the worker runs inside the API by default. For a separate process, set `RUN_BACKGROUND_WORKER=false` on the API and run `python worker.py`. Set `AUTO_ANALYZE_TICKETS=false` to turn auto-triage off.
+- **Tests:** `python test_jobs.py` (no Claude calls; failures are simulated).
+
+## MCP server
+
+`mcp_server.py` exposes the ticket tools (`get_ticket`, `find_similar_tickets`, `analyze_ticket`, `suggest_resolution`) over the Model Context Protocol, so any MCP client can use them. It reuses the same database and AI code as the API and both agents.
+
+- **Access control:** the server acts as one identity whose clearance is set by `MCP_CLEARANCE` (default `standard`). Tickets above that clearance look like missing tickets and are excluded from similarity search before ranking, so they never reach a model prompt.
+- **Verify:** `python test_mcp.py`
+- **Explore:** `npx @modelcontextprotocol/inspector venv\Scripts\python.exe mcp_server.py`
+- Requires `mcp[cli]<2` (2.x renamed `FastMCP`).
+
